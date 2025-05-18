@@ -1,1 +1,2 @@
 Doctor:MJKS
+Priestess:PRTS

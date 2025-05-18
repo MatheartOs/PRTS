@@ -133,6 +133,17 @@ public class MiniOS {
                     }
                     if (mkdirTarget.isEmpty()) break;
                     File dir = new File(currentDir, mkdirTarget);
+                    if (dir.exists()) {
+                        // 存在同名文件或目录，报错并显示owner
+                        String absPath = dir.getAbsolutePath();
+                        String basePath = BASE_DIR.substring(0, BASE_DIR.indexOf("PRTS"));
+                        String relPath = absPath.startsWith(basePath) ? absPath.substring(basePath.length()) : absPath;
+                        relPath = relPath.replace("\\", "/");
+                        String existOwner = fileOwners.get(relPath);
+                        if (existOwner == null) existOwner = "未知";
+                        System.out.println("已存在同名文件或目录: " + dir.getName() + " [owner: " + existOwner + "]");
+                        break;
+                    }
                     if (dir.mkdir()) {
                         // 存储相对路径
                         String absPath = dir.getAbsolutePath();
@@ -219,11 +230,12 @@ public class MiniOS {
                         break;
                     }
                     if (parts.length < 2) break;
+                    // 直接取参数，支持带空格和引号
                     String rmTarget = input.trim().substring(2).trim();
-                    if (rmTarget.startsWith("rm")) rmTarget = rmTarget.substring(2).trim();
                     if ((rmTarget.startsWith("\"") && rmTarget.endsWith("\"")) || (rmTarget.startsWith("'") && rmTarget.endsWith("'"))) {
                         rmTarget = rmTarget.substring(1, rmTarget.length() - 1);
                     }
+                    if (rmTarget.isEmpty()) break;
                     File delFile = new File(currentDir, rmTarget);
                     // 检查是否为最基层目录（PRTS Workspace），禁止删除
                     File baseWorkspace = new File(System.getProperty("user.dir") + File.separator + "PRTS" + File.separator + "PRTS Workspace");
@@ -231,22 +243,33 @@ public class MiniOS {
                         System.out.println("禁止删除最基层目录: " + baseWorkspace.getName());
                         break;
                     }
-                    String delOwner = fileOwners.get(delFile.getAbsolutePath());
-                    if (delOwner == null || delOwner.equals(currentUser) || admins.containsKey(currentUser)) {
-                        boolean deleted = deleteRecursively(delFile);
-                        if (deleted) {
-                            String absPath = delFile.getAbsolutePath();
-                            String basePath = BASE_DIR.substring(0, BASE_DIR.indexOf("PRTS"));
-                            String relPath = absPath.startsWith(basePath) ? absPath.substring(basePath.length()) : absPath;
-                            relPath = relPath.replace("\\", "/");
-                            fileOwners.remove(relPath);
-                            saveOwners();
-                            System.out.println("删除成功");
-                        } else {
-                            System.out.println("删除失败");
+                    // 只处理相对路径
+                    String rmAbsPath = delFile.getAbsolutePath();
+                    String rmBasePath = BASE_DIR.substring(0, BASE_DIR.indexOf("PRTS"));
+                    String rmRelPath = rmAbsPath.startsWith(rmBasePath) ? rmAbsPath.substring(rmBasePath.length()) : rmAbsPath;
+                    rmRelPath = rmRelPath.replace("\\", "/");
+                    // 检查所有者（避免与上文owner变量重名）
+                    String rmOwner = fileOwners.get(rmRelPath);
+                    if (rmOwner != null && !rmOwner.equals(currentUser)) {
+                        System.out.println("无权限：只能删除自己拥有的文件或目录，或无主文件/目录。");
+                        break;
+                    }
+                    // 递归删除所有以relPath为前缀的owner
+                    List<String> toRemove = new ArrayList<>();
+                    for (String key : fileOwners.keySet()) {
+                        if (key.equals(rmRelPath) || key.startsWith(rmRelPath + "/")) {
+                            toRemove.add(key);
                         }
+                    }
+                    for (String key : toRemove) {
+                        fileOwners.remove(key);
+                    }
+                    boolean deleted = deleteRecursively(delFile);
+                    if (deleted) {
+                        saveOwners();
+                        System.out.println("删除成功");
                     } else {
-                        System.out.println("无权限删除该文件/目录");
+                        System.out.println("删除失败");
                     }
                     break;
                 case "create":
